@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import SQLModel, Field, Session, create_engine, select
 from pydantic import BaseModel
@@ -44,14 +44,17 @@ def get_current_user(
 
     try:
         payload = jwt.decode(token, secret, algorithms=[algo])
-        username = payload["username"]
-
-        current_user = session.exec(select(Users).where(U.username == username)).first()
-        if current_user == None:
-            print("username not in database")
-        return current_user
     except Exception as e:
-        return {"jwt_error":"couldn't get current user"}
+        raise HTTPException(status_code=401, detail="couldnt get current user")
+    username = payload["username"]
+    if username == None:
+        raise HTTPException(status_code=400, deatil="No username in payload")
+
+    current_user = session.exec(select(User).where(User.username == username)).first()
+    if current_user == None:
+        raise HTTPException(status_code=404, deatil="username not found in database")
+    return current_user
+
 
 
 
@@ -119,7 +122,9 @@ async def send_message(
     sender_id = user.id
 
     receiver_in_db = session.exec(select(User).where(User.username == message.receiver)).first()
-    receiver_id = sender_in_db.id
+    if receiver_in_db == None:
+        raise HTTPException(status_code=404, detail="receiver not found in database")
+    receiver_id = receiver_in_db.id
 
     new_message = Message(sender_id=sender_id, receiver_id=receiver_id, content=message.content)
 
@@ -127,4 +132,4 @@ async def send_message(
     session.commit()
     session.refresh(new_message)
 
-    return {"message":f"message was sent to {message.receiver} as {new_message}"}
+    return {"message":f"message was sent to {message.receiver} as {new_message.content}"}
