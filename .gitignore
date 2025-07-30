@@ -1,5 +1,5 @@
 data.db
 .env
 curl_commands.txt
-__pycache__
+__pycache__/
 venv/

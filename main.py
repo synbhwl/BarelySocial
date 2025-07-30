@@ -1,50 +1,69 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
+from fastapi.security import OAuth2PasswordBearer
+from sqlmodel import SQLModel, Field, Session, create_engine, select
 from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime
 import sqlite3
 from passlib.hash import pbkdf2_sha256
-import os
-from dotenv import load_dotenv
 import jwt
+from core.config import settings
 
 app = FastAPI()
-load_dotenv()
-secret = os.getenv("JWT_SECRET")
+secret = settings.JWT_SECRET
 algo = "HS256"
-EXCLUDE = ['/','/register','/login', '/docs', '/openapi.json']
+# EXCLUDE = ['/','/register','/login', '/docs', '/openapi.json']
 
+class User(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username:str
+    password: str
+
+class Message(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    sender_id: int 
+    receiver_id: int
+    content: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+engine = create_engine("sqlite:///data.db")
+SQLModel.metadata.create_all(engine)
+
+def create_session():
+    with Session(engine) as session:
+        yield session
+
+token = OAuth2PasswordBearer(tokenUrl = "login")
 # auth middleware that verifies the auth header bearer token
-@app.middleware('http')
-async def authmw(req: Request, call_next) :
-    path = req.url.path
-    if path in EXCLUDE:
-        return await call_next(req)
-    
-    header= req.headers.get('authorization')
-    if not header or not header.startswith('Bearer'):
-        return {"404 error":"missing auth header"}
+# @app.middleware('http')
+def get_current_user(
+    req: Request, 
+    token: str = Depends(token),
+    session: Session = Depends(create_session)
+    ):
 
-    token = header.split(' ')[1]
     try:
         payload = jwt.decode(token, secret, algorithms=[algo])
-        req.state.user = payload
-    except jwt.InvalidTokenError as e:
-        return {"token error":str(e)}
+        username = payload["username"]
 
-    return await call_next(req)
+        current_user = session.exec(select(Users).where(U.username == username)).first()
+        if current_user == None:
+            print("username not in database")
+        return current_user
+    except Exception as e:
+        return {"jwt_error":"couldn't get current user"}
 
 
-# opening the database file in a global context manager to create the initial table to hold users (id will be automatically incremented and this needn't be inserted manually)
-with sqlite3.connect('data.db') as conn:
-    conn.execute("""CREATE TABLE IF NOT EXISTS users(
-        id INTEGER PRIMARY KEY AUTOINCREMENT, 
-        username TEXT NOT NULL UNIQUE,
-        password NOT NULL
-    );""")
 
 # making a user class to hold the user objects with the two fields
-class User(BaseModel):
+class User_create(BaseModel):
     username : str
     password : str
+
+# making a messages class to take messages 
+class Message_create(BaseModel):
+    receiver : str
+    content : str
 
 # greet greets the user when they land at the root route or basic url of the server
 @app.get("/")
@@ -53,43 +72,59 @@ async def greet():
 
 # register_user regsiters the user and puts them into the database table for users
 @app.post("/register")
-async def register_user(user: User):
+async def register_user(user: User_create, session: Session= Depends(create_session)):
+    hashed = pbkdf2_sha256.hash(user.password)
+    new_user = User(username=user.username, password=hashed)
     try:
-        hashed = pbkdf2_sha256.hash(user.password)
-        with sqlite3.connect('data.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (user.username, hashed))
-            return {"message":"user registered successfully"}
-    except sqlite3.IntegrityError as e:
+        session.add(new_user)
+        session.commit()
+        session.refresh(new_user)
+        return {"message":"user registered successfully"}
+    except Exception as e:
         return {"error while registering": str(e)}
 
 # login_user matches the username with database, matches the hashed password, logs in if matched, signs a jwt token and sends it to the client
 @app.post("/login")
-async def login_user(user: User):
+async def login_user(user: User_create, session: Session = Depends(create_session)):
     try:
-        with sqlite3.connect('data.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT EXISTS(SELECT 1 FROM users WHERE username = ?);", (user.username,))
-            row_exists = cursor.fetchone()[0]
-            if row_exists == 0:
-                return {"error while logging in": "username doesnt exist"}
+        statement = select(User).where(User.username == user.username)
+        result = session.exec(statement)
+        user_in_db = result.first()
+        if user_in_db is None:
+            return {"login_error":"username doesnt exist"}
 
-            cursor.execute("SELECT (password) FROM users WHERE username = ?", (user.username,))
-            hashed_pass = cursor.fetchone()[0]
+        hashed_pass = user_in_db.password
 
-            matched = pbkdf2_sha256.verify(user.password, hashed_pass)
-            if matched == True:
-                payload = {
-                    "username":user.username
-                }
-                token = jwt.encode(payload, secret, algorithm=algo)
-                return {"message":"user logged in successfully", "token":token}
-            else :
-                return {"error while logging in": "wrong password"}
+        matched = pbkdf2_sha256.verify(user.password, hashed_pass)
+        if matched == True:
+            payload = {
+                "username":user.username
+            }
+            token = jwt.encode(payload, secret, algorithm=algo)
+            return {"message":"user logged in successfully", "token":token}
+        else :
+            return {"login_error": "wrong password"}
     except Exception as e:
         return {"error while logging in": str(e)}
 
-# test protected 
-@app.get('/protected')
-async def something():
-    return {"message":"you are now logged in"}
+#sending messages 
+@app.post('/messages/new')
+async def send_message(
+    req: Request, 
+    message: Message_create, 
+    session: Session = Depends(create_session),
+    user: User = Depends(get_current_user)
+    ):
+
+    sender_id = user.id
+
+    receiver_in_db = session.exec(select(User).where(User.username == message.receiver)).first()
+    receiver_id = sender_in_db.id
+
+    new_message = Message(sender_id=sender_id, receiver_id=receiver_id, content=message.content)
+
+    session.add(new_message)
+    session.commit()
+    session.refresh(new_message)
+
+    return {"message":f"message was sent to {message.receiver} as {new_message}"}
