@@ -4,3 +4,4 @@ curl_commands.txt
 __pycache__/
 venv/
 confid.txt
+.vscode/
