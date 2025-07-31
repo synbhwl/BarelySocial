@@ -1,8 +1,7 @@
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    DEBUG: bool = True
-    ENVIRONMENT: str = "local"
+    # DATABASE_URL: str
     JWT_SECRET: str
 
     class Config:

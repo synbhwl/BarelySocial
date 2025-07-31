@@ -10,50 +10,35 @@ import jwt
 import json
 from core.config import settings
 
+#local imports
+from models import User, Message
+from core.database import create_session
+from core.security import get_current_user
+
 app = FastAPI()
 secret = settings.JWT_SECRET
 algo = "HS256"
-# EXCLUDE = ['/','/register','/login', '/docs', '/openapi.json']
 
-class User(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    username:str = Field(index=True, unique=True)
-    password: str
+# token = OAuth2PasswordBearer(tokenUrl = "login")
 
-class Message(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    sender_id: int 
-    receiver_id: int
-    content: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+# def get_current_user(
+#     req: Request, 
+#     token: str = Depends(token),
+#     session: Session = Depends(create_session)
+#     ):
 
-engine = create_engine("sqlite:///data.db")
-SQLModel.metadata.create_all(engine)
+#     try:
+#         payload = jwt.decode(token, secret, algorithms=[algo])
+#     except Exception as e:
+#         raise HTTPException(status_code=401, detail="couldnt get current user")
+#     username = payload["username"]
+#     if username == None:
+#         raise HTTPException(status_code=400, deatil="No username in payload")
 
-def create_session():
-    with Session(engine) as session:
-        yield session
-
-token = OAuth2PasswordBearer(tokenUrl = "login")
-
-def get_current_user(
-    req: Request, 
-    token: str = Depends(token),
-    session: Session = Depends(create_session)
-    ):
-
-    try:
-        payload = jwt.decode(token, secret, algorithms=[algo])
-    except Exception as e:
-        raise HTTPException(status_code=401, detail="couldnt get current user")
-    username = payload["username"]
-    if username == None:
-        raise HTTPException(status_code=400, deatil="No username in payload")
-
-    current_user = session.exec(select(User).where(User.username == username)).first()
-    if current_user == None:
-        raise HTTPException(status_code=404, deatil="username not found in database")
-    return current_user
+#     current_user = session.exec(select(User).where(User.username == username)).first()
+#     if current_user == None:
+#         raise HTTPException(status_code=404, deatil="username not found in database")
+#     return current_user
 
 
 
