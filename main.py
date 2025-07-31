@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Depends, HTTPException, status
+from fastapi import FastAPI, Request, Depends, HTTPException, status, Response
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import SQLModel, Field, Session, create_engine, select
 from pydantic import BaseModel
@@ -7,6 +7,7 @@ from datetime import datetime
 import sqlite3
 from passlib.hash import pbkdf2_sha256
 import jwt
+import json
 from core.config import settings
 
 app = FastAPI()
@@ -133,3 +134,60 @@ async def send_message(
     session.refresh(new_message)
 
     return {"message":f"message was sent to {message.receiver} as {new_message.content}"}
+
+#seeing list of chats
+@app.get('/messages')
+async def see_all_chats(
+    session: Session = Depends(create_session),
+    user: User = Depends(get_current_user)
+    ):
+
+    chats_raw = session.exec(select(Message).where(Message.receiver_id == user.id or Message.sender_id == user.id)).all()
+    chat_list = set()
+    for chat in chats_raw:
+        if chat.sender_id == user.id:
+            other_user_id = chat.receiver_id
+        elif chat.receiver_id == user.id:
+            other_user_id = chat.sender_id
+
+        other_user = session.get(User, other_user_id)
+        if other_user:
+            chat_list.add(other_user.username)
+
+    if not chat_list:
+        return {"message":"you have no messages yet"}
+
+    return Response(content=json.dumps(list(chat_list), indent=4), media_type='application/json')
+
+#seeing the spcific chat of a username
+@app.get('/messages/{username}')
+async def see_specific_chat(
+    username: str,
+    session: Session = Depends(create_session),
+    user: User = Depends(get_current_user)
+    ):
+
+    other_user = session.exec(select(User).where(User.username == username)).first()
+    if other_user is None:
+        return {'message':'user not found in database'}
+
+    chat_full = []
+    messages_raw = session.exec(
+        select(Message).where(
+           ((Message.sender_id == user.id) and (Message.receiver_id == other_user.id)) or ((Message.receiver_id == user.id) and (Message.sender_id == other_user.id))
+        )).all()
+
+    if not messages_raw:
+        return {"message":"you have no chats with the user in the database"}
+
+    for message in messages_raw:
+        user_for_label = session.get(User, chat.sender_id)
+        chat_full.append({f"{user_for_label.username}":f"{message.content}"})
+
+    if not chat_full:
+        return {"message":"you have no chats with the user"}
+    chat_full.sort(key=lambda x:x.timestamp)
+
+    return Response(content=json.dumps(chat_full, indent=4), media_type='application/json')
+
+
