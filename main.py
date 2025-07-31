@@ -17,7 +17,7 @@ algo = "HS256"
 
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    username:str
+    username:str = Field(index=True, unique=True)
     password: str
 
 class Message(SQLModel, table=True):
@@ -35,8 +35,7 @@ def create_session():
         yield session
 
 token = OAuth2PasswordBearer(tokenUrl = "login")
-# auth middleware that verifies the auth header bearer token
-# @app.middleware('http')
+
 def get_current_user(
     req: Request, 
     token: str = Depends(token),
@@ -142,7 +141,7 @@ async def see_all_chats(
     user: User = Depends(get_current_user)
     ):
 
-    chats_raw = session.exec(select(Message).where(Message.receiver_id == user.id or Message.sender_id == user.id)).all()
+    chats_raw = session.exec(select(Message).where((Message.receiver_id == user.id) | (Message.sender_id == user.id))).all()
     chat_list = set()
     for chat in chats_raw:
         if chat.sender_id == user.id:
@@ -174,20 +173,27 @@ async def see_specific_chat(
     chat_full = []
     messages_raw = session.exec(
         select(Message).where(
-           ((Message.sender_id == user.id) and (Message.receiver_id == other_user.id)) or ((Message.receiver_id == user.id) and (Message.sender_id == other_user.id))
+           ((Message.sender_id == user.id) & (Message.receiver_id == other_user.id)) | ((Message.receiver_id == user.id) & (Message.sender_id == other_user.id))
         )).all()
 
     if not messages_raw:
         return {"message":"you have no chats with the user in the database"}
 
     for message in messages_raw:
-        user_for_label = session.get(User, chat.sender_id)
-        chat_full.append({f"{user_for_label.username}":f"{message.content}"})
+        user_for_label = session.get(User, message.sender_id)
+        chat_full.append({
+            f"{user_for_label.username}":f"{message.content}",
+            "timestamp":message.timestamp.isoformat()
+        })
 
     if not chat_full:
         return {"message":"you have no chats with the user"}
-    chat_full.sort(key=lambda x:x.timestamp)
+    chat_full.sort(key=lambda x:x["timestamp"])
 
-    return Response(content=json.dumps(chat_full, indent=4), media_type='application/json')
+    final_chat = []
+    for elements in chat_full:
+        actual_msg = list(elements.items())[0]
+        final_chat.append(dict([actual_msg]))
 
+    return Response(content=json.dumps(final_chat, indent=4), media_type='application/json')
 
