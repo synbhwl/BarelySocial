@@ -1,6 +1,12 @@
 # from fastapi import APIRouter
 
-from fastapi import APIRouter, Request, Depends, HTTPException, Response
+from fastapi import (
+    APIRouter,
+    Request,
+    Depends,
+    HTTPException,
+    Response,
+    status)
 from sqlmodel import Session, select
 import json
 
@@ -23,25 +29,41 @@ async def send_message(
     user: User = Depends(get_current_user)
 ):
 
+    if not message.receiver or not message.content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="reciever or content missing"
+        )
     sender_id = user.id
 
     receiver_in_db = session.exec(select(User).where(
         User.username == message.receiver)).first()
     if receiver_in_db is None:
         raise HTTPException(
-            status_code=404, detail="receiver not found in database")
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="receiver not found in database"
+        )
     receiver_id = receiver_in_db.id
 
-    new_message = Message(sender_id=sender_id,
-                          receiver_id=receiver_id, content=message.content)
-
-    session.add(new_message)
-    session.commit()
-    session.refresh(new_message)
+    new_message = Message(
+        sender_id=sender_id,
+        receiver_id=receiver_id,
+        content=message.content
+    )
+    try:
+        session.add(new_message)
+        session.commit()
+        session.refresh(new_message)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="something went wrong"
+        )
 
     return {
         "message": f"""message was sent to
-        {message.receiver} as {new_message.content}"""}
+        {message.receiver} as {new_message.content}"""
+    }
 
 # seeing list of chats
 
@@ -83,11 +105,19 @@ async def see_specific_chat(
     session: Session = Depends(create_session),
     user: User = Depends(get_current_user)
 ):
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="receiver username missing"
+        )
 
     other_user = session.exec(select(User).where(
         User.username == username)).first()
     if other_user is None:
-        return {'message': 'user not found in database'}
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="no such username exists"
+        )
 
     chat_full = []
     messages_raw = session.exec(
@@ -99,7 +129,10 @@ async def see_specific_chat(
         )).all()
 
     if not messages_raw:
-        return {"message": "you have no chats with the user in the database"}
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="no messages found with the user"
+        )
 
     for message in messages_raw:
         user_for_label = session.get(User, message.sender_id)
@@ -108,8 +141,6 @@ async def see_specific_chat(
             "timestamp": message.timestamp.isoformat()
         })
 
-    if not chat_full:
-        return {"message": "you have no chats with the user"}
     chat_full.sort(key=lambda x: x["timestamp"])
 
     final_chat = []

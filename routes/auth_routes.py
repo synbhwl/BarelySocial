@@ -1,5 +1,5 @@
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 from passlib.hash import pbkdf2_sha256
 import jwt
@@ -15,7 +15,7 @@ algo = "HS256"
 
 router = APIRouter()
 
-# route to greet
+# this is the landing route
 
 
 @router.get("/")
@@ -34,6 +34,11 @@ async def register_user(
     session: Session = Depends(create_session)
 ):
 
+    if (not user.username) or (not user.password):
+        raise HTTPException(
+            Status_code=status.HTTP_400_BAD_REQUEST,
+            detail="username or password missing"
+        )
     hashed = pbkdf2_sha256.hash(user.password)
     new_user = User(username=user.username, password=hashed)
     try:
@@ -41,8 +46,11 @@ async def register_user(
         session.commit()
         session.refresh(new_user)
         return {"message": "user registered successfully"}
-    except Exception as e:
-        return {"error while registering": str(e)}
+    except Exception:
+        raise HTTPException(
+            Status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Couldn't register user due to database issue"
+        )
 
 # login_user matches the username with database,
 # matches the hashed password, logs in if matched, signs a jwt token and
@@ -54,12 +62,20 @@ async def login_user(
     user: User_create,
     session: Session = Depends(create_session)
 ):
+    if (not user.username) or (not user.password):
+        raise HTTPException(
+            Status_code=status.HTTP_400_BAD_REQUEST,
+            detail="username or password missing"
+        )
     try:
-        statement = select(User).where(User.username == user.username)
-        result = session.exec(statement)
-        user_in_db = result.first()
+        user_in_db = session.exec(
+            select(User).where(User.username == user.username)
+        ).first()
         if user_in_db is None:
-            return {"login_error": "username doesnt exist"}
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="no such username exists"
+            )
 
         hashed_pass = user_in_db.password
 
@@ -71,6 +87,12 @@ async def login_user(
             token = jwt.encode(payload, secret, algorithm=algo)
             return {"message": "user logged in successfully", "token": token}
         else:
-            return {"login_error": "wrong password"}
-    except Exception as e:
-        return {"error while logging in": str(e)}
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="credentials wrong"
+            )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="couldn't login user"
+        )

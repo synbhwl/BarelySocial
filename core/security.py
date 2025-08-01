@@ -9,7 +9,14 @@ from models import User
 secret = settings.JWT_SECRET
 algo = "HS256"
 
+# this parses the token from the auth header
+# since the jwt is encoded in the login route,
+# that's where it gets the token from
+
 token = OAuth2PasswordBearer(tokenUrl="login")
+
+# get_current_user is a substitute for auth middleware and req.state.user
+# that we would have had to manually set inside the auth middleware
 
 
 def get_current_user(
@@ -21,7 +28,7 @@ def get_current_user(
     try:
         payload = jwt.decode(token, secret, algorithms=[algo])
     except Exception:
-        raise HTTPException(status_code=401, detail="couldnt get current user")
+        raise HTTPException(status_code=401, detail="invalid token")
     username = payload["username"]
     if username is None:
         raise HTTPException(status_code=400, deatil="No username in payload")
@@ -30,5 +37,5 @@ def get_current_user(
         User.username == username)).first()
     if current_user is None:
         raise HTTPException(
-            status_code=404, deatil="username not found in database")
+            status_code=404, deatil="no such username exists")
     return current_user
