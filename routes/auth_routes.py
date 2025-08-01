@@ -20,9 +20,11 @@ router = APIRouter()
 
 @router.get("/")
 async def greet():
-    return """hey there! welcome to BarelySocial.
-    We are a backend-only minimal chat app.
-    Consider register/logging in if you still haven't :)"""
+    return (
+        "hey there! welcome to BarelySocial. "
+        "We are a backend-only minimal chat app. "
+        "Consider register/logging in if you still haven't :)"
+    )
 
 # register_user regsiters the user and puts them
 # into the database table for users
@@ -62,9 +64,9 @@ async def login_user(
     user: User_create,
     session: Session = Depends(create_session)
 ):
-    if (not user.username) or (not user.password):
+    if (not user.username.strip()) or (not user.password.strip()):
         raise HTTPException(
-            Status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="username or password missing"
         )
     try:

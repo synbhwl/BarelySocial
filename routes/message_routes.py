@@ -61,8 +61,10 @@ async def send_message(
         )
 
     return {
-        "message": f"""message was sent to
-        {message.receiver} as {new_message.content}"""
+        "message": (
+            f"message was sent to "
+            f"{message.receiver} as {new_message.content}"
+        )
     }
 
 # seeing list of chats

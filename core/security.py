@@ -31,7 +31,7 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="invalid token")
     username = payload["username"]
     if username is None:
-        raise HTTPException(status_code=400, deatil="No username in payload")
+        raise HTTPException(status_code=400, detail="No username in payload")
 
     current_user = session.exec(select(User).where(
         User.username == username)).first()

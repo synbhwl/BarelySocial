@@ -1,6 +1,9 @@
 from sqlmodel import SQLModel, create_engine, Session
+from core.config import settings # noqa
 
-engine = create_engine("sqlite:///data.db")
+database = settings.DATABASE_URL
+
+engine = create_engine(database)
 SQLModel.metadata.create_all(engine)
 
 # created in order to avoid manually opening and closing the databse session,
